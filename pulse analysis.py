@@ -2,8 +2,10 @@ import numpy as np
 import os
 import glob
 import matplotlib.pyplot as plt
-from scipy.stats import shapiro, f_oneway, kruskal
+from scipy.stats import shapiro, kruskal
 import pandas as pd
+import scikit_posthocs as sp
+import itertools
 
 path = 'D:/Learning materials/Oldenburg/2nd semester/Neuroethology and Neurogenetics_Insect Models/data/pulse results/annotations/'
 pulse = glob.glob(os.path.join(path, '*.npz'))
@@ -22,47 +24,10 @@ for file_path in pulse:
     if 'interval' in data:
         IPI[file_name] = data['interval']
 carrier_values = list(carriers.values())
-fly_labels = list(carriers.keys())
 duration_values = list(duration.values())
-fly_labels = list(duration.keys())
 IPI_values = list(IPI.values())
-fly_labels = list(IPI.keys())
+fly_labels = list(carriers.keys())
 
-flycolor = [ [0.1, 0.3, 0.5], [0.2, 0.4, 0.6], [0.3, 0.4, 0.7], [0.5, 0.1, 0.1], [0.7, 0.2, 0.1],
-            [0.7, 0.4, 0.2], [0.1, 0.3, 0.2], [0.3, 0.6, 0.3], [0.4, 0.7, 0.3], [0.2, 0.1, 0.5],
-            [0.4, 0.4, 0.6], [0.5, 0.5, 0.7], [0.3, 0.3, 0.3], [0.5, 0.5, 0.5], [0.6, 0.6, 0.6] ]
-## Carrier frequency plot ########
-labels = []
-plt.figure(figsize=(10, 6))
-for i1, (fly_name, values) in enumerate(carriers.items()):
-    x1 = np.full_like(values, i1, dtype=int)
-    jitter_x1 = x1 + np.random.normal(loc=0, scale=0.1, size=len(values))
-    plt.scatter(jitter_x1, values, color = flycolor[i1], alpha=0.1, s=10)
-    labels.append(f'Fly {i1+1}')
-carrier_values_list = list(carriers.values())
-positions = range(len(fly_labels))
-plt.boxplot(carrier_values_list, positions=positions, widths=0.6, patch_artist=True)
-
-plt.xticks(carrier_values_list, labels)
-plt.xlabel('Flies')
-plt.ylabel('Carrier frequency')
-plt.title('Carrier frequency comparison across individual flies')
-
-plt.show()
-
-## Duration plot ########
-plt.figure(figsize=(10, 6))
-for i2, (fly_name, values) in enumerate(duration.items()):
-    x2 = np.full_like(values, i2, dtype=int)
-    jitter_x2 = x2 + np.random.normal(loc=0, scale=0.1, size=len(values))
-    plt.scatter(jitter_x2, values, alpha=0.1, label=fly_name, s=10)
-plt.xlabel('Flies')
-plt.ylabel('Duration')
-plt.title('Duration comparison across individual flies')
-# plt.show()
-
-## IPI plot ########
-plt.figure(figsize=(10, 6))
 filtered_IPI = {}
 for fly_name, values in IPI.items():
     values = values[~np.isnan(values)]
@@ -71,52 +36,87 @@ for fly_name, values in IPI.items():
         # print(f"{fly_name}: {len(filtered)} values kept (max={np.max(filtered):.2f})")
         filtered_IPI[fly_name] = filtered
 
-for i3, (fly_name, values) in enumerate(filtered_IPI.items()):
-    x3 = np.full_like(values, i3, dtype=int)
-    jitter_x3 = x3 + np.random.normal(loc=0, scale=0.1, size=len(values))
-    plt.scatter(jitter_x3, values, alpha=0.1, label=fly_name, s=10)
-plt.xlabel('Flies')
-plt.ylabel('IPI')
-plt.title('IPI comparison across individual flies')
-# plt.show()
-
-## Normality test ########################
-def normal(feature):
-    all_normal = True
-    # print("Normality test (Shapiro-Wilk):")
-    for fly_name, values in feature.items():
-        stat, p = shapiro(values)
-        if p <= 0.05:
-            # print(f"{fly_name}: not noramlly distributed (p = {p:.3f})")
-            all_normal = False
-
-    if all_normal:
-        print("all normally distributed")
-    else:
-        print("not normally distributed")
-
-normal(carriers)
-normal(duration)
-normal(filtered_IPI)
-
-## Significance comparison ##################
-
-def kruskal_test(feature, feature_name):
-    data_groups = list(feature.values())
+##############################
+# ## scatter plot and box plot, normality test, significance test
+def analyze_and_plot(feature_dict, title, ylabel):
+    ## remove NaN
+    feature_dict = {k: v[~np.isnan(v)] for k, v in feature_dict.items() if len(v) > 0}
     
+    ## change the file name into fly1, fy2, .... 
+    original_labels = list(feature_dict.keys())
+    fly_labels = [f"Fly {i+1}" for i in range(len(original_labels))]
+    label_map = dict(zip(original_labels, fly_labels))
+
+    ## normality test
+    for k, v in feature_dict.items():
+        stat, p = shapiro(v)
+        print(f"{label_map[k]}: p = {p:.4f} {'(not normally distributed)' if p < 0.05 else '(normally distributed)'}")
+
+    ## Kruskal-Wallis test
+    data_groups = list(feature_dict.values())
     stat, p = kruskal(*data_groups)
-    print(f"\nKruskal-Wallis H ({feature_name}):")
-    print(f"  p value: {p:.3f}")
-    alpha = 0.05
-    if p > alpha:
-        print("no significant difference")
+    if p >= 0.05:
+        print("Significant difference: No")
     else:
-        print("there is significant difference")
+        print("Significant difference: Yes")
 
-kruskal_test(carriers, "Carrier")
-kruskal_test(duration, "Duration")
-kruskal_test(filtered_IPI, "IPI") 
+    ## Posthoc Dunn-Bonferroni test
+    all_data = []
+    groups = []
+    for name, vals in feature_dict.items():
+        all_data.extend(vals)
+        groups.extend([label_map[name]] * len(vals))  
+    df = pd.DataFrame({ylabel: all_data, 'group': groups})
+    pvals_df = sp.posthoc_dunn(df, val_col=ylabel, group_col='group', p_adjust='bonferroni')
 
-## Posthoc test ################
+    ## plotting
+    fig, ax = plt.subplots(figsize=(10, 6))
+    values_list = list(feature_dict.values())
 
-# def 
+    for i, values in enumerate(values_list):
+        x = np.full_like(values, i, dtype=int)
+        jitter_x = x + np.random.normal(loc=0, scale=0.1, size=len(values))
+        ax.scatter(jitter_x, values, alpha=0.1, s=10)
+
+    ax.boxplot(values_list, positions=range(len(fly_labels)), widths=0.6, patch_artist=False, showfliers=False)
+    ax.set_xticks(range(len(fly_labels)))
+    ax.set_xticklabels(fly_labels)
+    ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    plt.show
+
+    ## Save posthoc test result to CSV
+    save_dir = 'D:/Learning materials/Oldenburg/2nd semester/Neuroethology and Neurogenetics_Insect Models/data/'
+    os.makedirs(save_dir, exist_ok=True)
+    result_filename = os.path.join(save_dir, f'posthoc_{ylabel}.csv')
+    pvals_df.to_csv(result_filename)
+    ## Also save significance markers (***, **, *, -) version
+    stars_df = pvals_df.copy()
+    for i in range(stars_df.shape[0]):
+        for j in range(stars_df.shape[1]):
+            pval = stars_df.iat[i, j]
+            if i == j or pd.isna(pval):
+                stars_df.iat[i, j] = ''
+            elif pval < 0.001:
+                stars_df.iat[i, j] = '***'
+            elif pval < 0.01:
+                stars_df.iat[i, j] = '**'
+            elif pval < 0.05:
+                stars_df.iat[i, j] = '*'
+            else:
+                stars_df.iat[i, j] = '-'
+
+    stars_filename = os.path.join(save_dir, f'posthoc_{ylabel}_stars.csv')
+    stars_df.to_csv(stars_filename)
+    
+    ## Save label mapping (Fly n -> filename)
+    mapping_df = pd.DataFrame({
+        'Fly Label': fly_labels,
+        'Original Filename': original_labels
+    })
+    mapping_filename = os.path.join(save_dir, f'label_mapping_{ylabel}.csv')
+    mapping_df.to_csv(mapping_filename, index=False)
+
+analyze_and_plot(filtered_IPI, "IPI comparison across flies (≤80ms)", "IPI")
+analyze_and_plot(duration, "Duration comparison across flies", "Duration")
+analyze_and_plot(carriers, "Carrier frequency comparison across flies", "Carrier")
