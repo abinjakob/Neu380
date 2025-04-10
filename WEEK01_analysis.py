@@ -6,7 +6,13 @@ Created on Thu Apr 10 13:00:42 2025
 WEEK 01 Analysis of Pulse Songs for Wild Type 
 ----------------------------------------------
 
-This script performs the PCA analysis of the data
+This script performs:
+    - loads the feature files 
+    - pad or truncate features
+    - create feature vector and lables
+    - noprmalise the data using StandardScalar()
+    - Performs PCA (n_components=2)
+    - Create scatter plots for PC1 and PC2
 
 
 @author: Abin Jacob
