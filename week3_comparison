@@ -1,0 +1,95 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import shapiro, wilcoxon, ttest_rel
+import scipy
+import inspect
+import pandas as pd
+import math
+import seaborn as sns
+# import umap.umap_ as umap
+
+
+data = pd.read_csv('D:/Learning materials/Oldenburg/2nd semester/Neuroethology and Neurogenetics_Insect Models/data/week3/data/song_and_tracking.csv')
+print(data.keys())
+
+test_results = []
+
+features_sta = [col for col in data.columns if col not in ['pulse', 'file']]
+grouped_medians = (
+    data.groupby(['pulse', 'file'])[features_sta]
+    .median()
+    .reset_index()
+)
+
+pivoted = grouped_medians.pivot(index='file', columns='pulse')
+
+for feature in features_sta:
+    try:
+        x = pivoted[(feature, 0)].dropna()
+        y = pivoted[(feature, 1)].dropna()
+
+        common_files = x.index.intersection(y.index)
+        x, y = x.loc[common_files], y.loc[common_files]
+
+        p_x = shapiro(x).pvalue
+        p_y = shapiro(y).pvalue
+
+        if p_x > 0.05 and p_y > 0.05:
+            stat, pval = ttest_rel(x, y)
+            test_used = 'paired t-test'
+        else:
+            stat, pval = wilcoxon(x, y)
+            test_used = 'Wilcoxon signed-rank'
+
+        test_results.append({
+            'feature': feature,
+            'normality_x_p': round(p_x, 4),
+            'normality_y_p': round(p_y, 4),
+            'test': test_used,
+            'p_value': round(pval, 4)
+        })
+    except Exception as e:
+        print(f"[{feature}] skipped due to error: {e}")
+
+result_df = pd.DataFrame(test_results)
+print(result_df)
+
+##  add stars
+def p_to_star(p):
+    if p < 0.001:
+        return '***'
+    elif p < 0.01:
+        return '**'
+    elif p < 0.05:
+        return '*'
+    else:
+        return 'ns'
+
+star_dict = {
+    row['feature']: p_to_star(row['p_value'])
+    for _, row in result_df.iterrows()
+}
+
+num_features_sta = len(features_sta)
+cols_sta = 4
+rows_sta = math.ceil(num_features_sta / cols_sta)
+plt.figure(figsize=(20, rows_sta * 4))
+
+for i in range(len(features_sta)):
+    pivoted = grouped_medians.pivot(index='file', columns='pulse', values=features_sta[i])
+    pivoted.columns = ['sine', 'pulse']
+    pivoted = pivoted.dropna()
+
+    feature = features_sta[i]
+
+    plt.subplot(rows_sta, cols_sta, i+1)
+    for idx, row in pivoted.iterrows():
+        plt.plot(['Sine', 'Pulse'], [row['sine'], row['pulse']], c = 'black', marker='o', label=idx)
+        plt.title(f'{features_sta[i]}')
+        plt.ylabel('Median value')
+        plt.tight_layout()
+
+    stars = star_dict.get(feature, '')
+    plt.title(f'{feature} ({stars})')
+    plt.ylabel('Median value')
+plt.show()
