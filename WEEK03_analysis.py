@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import shapiro, wilcoxon
 import umap.umap_ as umap
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import gaussian_kde
 
 #%% load data 
 
@@ -137,15 +138,21 @@ fig.delaxes(axes[17])
 #%% calculating the UMAP
 
 
+columns4umap = [
+    'male_velocity_magnitude', 'male_velocity_forward','male_velocity_lateral', 'male_acceleration_mag', 'female_rotational_speed',
+    'female_velocity_magnitude', 'female_velocity_forward','female_acceleration_mag', 'distance', 
+     'male_relative_velocity_mag','female_relative_velocity_mag'
+]
+
 # get the feature vector
-X = df[columns_to_plot]
+X = df[columns4umap]
 labels = df['pulse']
 X_clean = X.dropna()
 X_scaled = StandardScaler().fit_transform(X_clean)
 labels_clean = labels[X_clean.index]
 
 
-reducer = umap.UMAP(n_neighbors=30, min_dist=0.1, n_components=2, random_state=42)
+reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
 # reducer = umap.UMAP(random_state=42)
 embedding = reducer.fit_transform(X_scaled)
 
@@ -153,4 +160,84 @@ plt.scatter(embedding[:, 0], embedding[:, 1], c=labels_clean, cmap='coolwarm', s
 plt.title('UMAP Projection')
 plt.xlabel('UMAP 1')
 plt.ylabel('UMAP 2')
+plt.show()
+
+
+#%%
+
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import gaussian_kde
+
+# Prepare UMAP embeddings for pulse and sine
+embedding_df = pd.DataFrame(embedding, columns=['UMAP1', 'UMAP2'])
+embedding_df['pulse'] = labels_clean.values
+
+pulse_points = embedding_df[embedding_df['pulse'] == 0][['UMAP1', 'UMAP2']].values.T
+sine_points = embedding_df[embedding_df['pulse'] == 1][['UMAP1', 'UMAP2']].values.T
+
+# Create grid
+xmin, xmax = embedding[:, 0].min(), embedding[:, 0].max()
+ymin, ymax = embedding[:, 1].min(), embedding[:, 1].max()
+Xgrid, Ygrid = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+positions = np.vstack([Xgrid.ravel(), Ygrid.ravel()])
+
+# KDE for each class
+kde_pulse = gaussian_kde(pulse_points)(positions).reshape(Xgrid.shape)
+kde_sine = gaussian_kde(sine_points)(positions).reshape(Xgrid.shape)
+
+# Difference in densities
+kde_diff = kde_pulse - kde_sine
+
+# Plot
+plt.figure()
+plt.subplot(1,3,1)
+plt.contourf(Xgrid, Ygrid, kde_sine, cmap='coolwarm', levels=20)
+plt.subplot(1,3,2)
+plt.contourf(Xgrid, Ygrid, kde_pulse, cmap='coolwarm', levels=20)
+plt.subplot(1,3,3)
+plt.contourf(Xgrid, Ygrid, kde_diff, cmap='coolwarm', levels=20)
+plt.colorbar(label='Pulse - Sine Density')
+plt.title('Density Difference in UMAP Space (Pulse - Sine)')
+plt.xlabel('UMAP1')
+plt.ylabel('UMAP2')
+plt.show()
+
+
+#%% plotting KDE
+
+
+# UMAP pulse and sine points
+umap_sine = embedding[labels_clean == 1]
+umap_pulse = embedding[labels_clean == 0]
+
+
+# creating a mesh grid over the UMAP space
+xmin, xmax = embedding[:,0].min(), embedding[:,0].max()
+ymin, ymax = embedding[:,1].min(), embedding[:,1].max()
+xx, yy = np.meshgrid(np.linspace(xmin, xmax, 200), np.linspace(ymin, ymax, 200))
+grid_coords = np.vstack([xx.ravel(), yy.ravel()])
+
+# KDEs over 2D space
+kde_pulse = gaussian_kde(umap_pulse.T)
+kde_sine = gaussian_kde(umap_sine.T)
+zz_pulse = kde_pulse(grid_coords).reshape(xx.shape)
+zz_sine = kde_sine(grid_coords).reshape(xx.shape)
+zz_diff = zz_pulse - zz_sine
+
+# plottiing
+fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+# pulse density
+axs[0].imshow(zz_pulse, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='Reds', alpha=0.7)
+axs[0].set_title("Pulse")
+# sine density
+axs[1].imshow(zz_sine, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='Purples', alpha=0.7)
+axs[1].set_title("Sine")
+# difference (Pulse - Sine)
+diff_plot = axs[2].imshow(zz_diff, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='bwr', alpha=0.8)
+axs[2].set_title("Pulse - Sine")
+fig.colorbar(diff_plot, ax=axs[2], shrink=0.8, label='Density Difference')
+
+plt.tight_layout()
 plt.show()
