@@ -81,7 +81,7 @@ for column in columns_to_plot:
     
 #%% noirmality test 
 
-for coulumn in columns_to_plot:
+for column in columns_to_plot:
     k, ps = shapiro(sine_data[column].dropna())
     k, pp = shapiro(pulse_data[column].dropna())
     if ps > 0.05:
@@ -97,7 +97,7 @@ for coulumn in columns_to_plot:
 
 #%% Mann–Whitney U test
 
-for coulumn in columns_to_plot:
+for column in columns_to_plot:
 
     stat, p = mannwhitneyu(mean_individual_sine[column].dropna(), mean_individual_pulse[column].dropna(), alternative='two-sided')
     if p < 0.001:
@@ -108,5 +108,7 @@ for coulumn in columns_to_plot:
         psign = 'Nope'
         
     print(f'{column}= p-value: {psign}')
+
+#%%
 
 
