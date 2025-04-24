@@ -24,6 +24,8 @@ from scipy.stats import shapiro, wilcoxon
 import umap.umap_ as umap
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import gaussian_kde
+import seaborn as sns
+import matplotlib.patches as mpatches
 
 #%% load data 
 
@@ -36,12 +38,12 @@ filename = op.join(rootpath, file2load)
 df = pd.read_csv(filename)
 
 # getting sine data 
-sine_data = df[df['pulse'] == 1]
+sine_data = df[df['pulse'] == 0]
 # calculating mean sine data per individual per column
 mean_individual_sine = sine_data.groupby('file').median().reset_index()
 
 # getting pulse data 
-pulse_data = df[df['pulse'] == 0]
+pulse_data = df[df['pulse'] == 1]
 # calculating mean pulse data per individual per column
 mean_individual_pulse = pulse_data.groupby('file').median().reset_index()
 
@@ -99,7 +101,7 @@ for column in columns_to_plot:
         
     print(f'{column}= sine: {s_norm}, pulse: {p_norm}')
 
-#%% Calculating Wilcoxon test 
+#%% calculating Wilcoxon test 
 
 
 fig, axes = plt.subplots(3, 6)
@@ -135,82 +137,75 @@ fig.delaxes(axes[17])
 
 
 
-#%% calculating the UMAP
+#%% computing the UMAP 
 
-
+# columns to consider for UMAP (after rejecting non significant results)
 columns4umap = [
     'male_velocity_magnitude', 'male_velocity_forward','male_velocity_lateral', 'male_acceleration_mag', 'female_rotational_speed',
     'female_velocity_magnitude', 'female_velocity_forward','female_acceleration_mag', 'distance', 
      'male_relative_velocity_mag','female_relative_velocity_mag'
 ]
 
-# get the feature vector
+# preparing feature vector
 X = df[columns4umap]
-labels = df['pulse']
 X_clean = X.dropna()
 X_scaled = StandardScaler().fit_transform(X_clean)
+# preparing label verctor 
+labels = df['pulse']
 labels_clean = labels[X_clean.index]
 
+# fitting UMAP
+model = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
+embedding = model.fit_transform(X_scaled)
 
-reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, n_components=2, random_state=42)
-# reducer = umap.UMAP(random_state=42)
-embedding = reducer.fit_transform(X_scaled)
 
-plt.scatter(embedding[:, 0], embedding[:, 1], c=labels_clean, cmap='coolwarm', s=5, alpha=0.6)
-plt.title('UMAP Projection')
+#%% plotting UMAP projections 
+
+plt.figure()
+# plotting songs labels 
+plt.subplot(1,2,1)
+plt.scatter(embedding[:, 0], embedding[:, 1], c=labels_clean, cmap='coolwarm', s=5, alpha=0.2)
+plt.title('Songs')
 plt.xlabel('UMAP 1')
 plt.ylabel('UMAP 2')
+pulse_patch = mpatches.Patch(color=plt.cm.coolwarm(0.0), label='Sine')
+sine_patch = mpatches.Patch(color=plt.cm.coolwarm(1.0), label='Pulse')
+plt.legend(handles=[sine_patch, pulse_patch], title="Song")
 plt.show()
 
+# plotting behvaiour labels
+plt.subplot(1,2,2)
 
-#%%
+# creating behavioral labels
+df_clean = df.dropna(subset=columns4umap).copy()
+cluster_labels = []
+for row in df_clean[columns4umap].values:
+    dist = row[8] 
+    male_vel = row[0] 
+    if dist < 3 and male_vel < .5:
+        cluster_labels.append("close")
+    elif dist < 5 and male_vel > .5:
+        cluster_labels.append("chasing")
+    else:
+        cluster_labels.append("other")
 
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from scipy.stats import gaussian_kde
-
-# Prepare UMAP embeddings for pulse and sine
-embedding_df = pd.DataFrame(embedding, columns=['UMAP1', 'UMAP2'])
-embedding_df['pulse'] = labels_clean.values
-
-pulse_points = embedding_df[embedding_df['pulse'] == 0][['UMAP1', 'UMAP2']].values.T
-sine_points = embedding_df[embedding_df['pulse'] == 1][['UMAP1', 'UMAP2']].values.T
-
-# Create grid
-xmin, xmax = embedding[:, 0].min(), embedding[:, 0].max()
-ymin, ymax = embedding[:, 1].min(), embedding[:, 1].max()
-Xgrid, Ygrid = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
-positions = np.vstack([Xgrid.ravel(), Ygrid.ravel()])
-
-# KDE for each class
-kde_pulse = gaussian_kde(pulse_points)(positions).reshape(Xgrid.shape)
-kde_sine = gaussian_kde(sine_points)(positions).reshape(Xgrid.shape)
-
-# Difference in densities
-kde_diff = kde_pulse - kde_sine
-
-# Plot
-plt.figure()
-plt.subplot(1,3,1)
-plt.contourf(Xgrid, Ygrid, kde_sine, cmap='coolwarm', levels=20)
-plt.subplot(1,3,2)
-plt.contourf(Xgrid, Ygrid, kde_pulse, cmap='coolwarm', levels=20)
-plt.subplot(1,3,3)
-plt.contourf(Xgrid, Ygrid, kde_diff, cmap='coolwarm', levels=20)
-plt.colorbar(label='Pulse - Sine Density')
-plt.title('Density Difference in UMAP Space (Pulse - Sine)')
-plt.xlabel('UMAP1')
-plt.ylabel('UMAP2')
+custom_palette = {
+    "chasing": "darkred",
+    "close": "darkblue",
+    "other": "gray"
+}
+# plotting UMAP with behavioral labels
+sns.scatterplot(x=embedding[:, 0], y=embedding[:, 1], hue=cluster_labels, palette= custom_palette, s =14, alpha=0.3)
+plt.title("Behavior")
+plt.legend(title="Behavior")
 plt.show()
-
 
 #%% plotting KDE
 
 
 # UMAP pulse and sine points
-umap_sine = embedding[labels_clean == 1]
-umap_pulse = embedding[labels_clean == 0]
+umap_sine = embedding[labels_clean == 0]
+umap_pulse = embedding[labels_clean == 1]
 
 
 # creating a mesh grid over the UMAP space
@@ -227,17 +222,23 @@ zz_sine = kde_sine(grid_coords).reshape(xx.shape)
 zz_diff = zz_pulse - zz_sine
 
 # plottiing
-fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+fig, axs = plt.subplots(1, 3)
 # pulse density
 axs[0].imshow(zz_pulse, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='Reds', alpha=0.7)
 axs[0].set_title("Pulse")
+axs[0].set_xlim([-3.6, 5])
 # sine density
 axs[1].imshow(zz_sine, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='Purples', alpha=0.7)
 axs[1].set_title("Sine")
+axs[1].set_xlim([-3.6, 5])
+
 # difference (Pulse - Sine)
 diff_plot = axs[2].imshow(zz_diff, origin='lower', extent=[xmin, xmax, ymin, ymax], cmap='bwr', alpha=0.8)
 axs[2].set_title("Pulse - Sine")
-fig.colorbar(diff_plot, ax=axs[2], shrink=0.8, label='Density Difference')
+axs[2].set_xlim([-3.6, 5])
+fig.colorbar(diff_plot, ax=axs[2], shrink=0.8)
 
-plt.tight_layout()
+# plt.tight_layout()
 plt.show()
+
+
